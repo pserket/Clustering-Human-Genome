@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[4]:
+# In[1]:
 
+
+# TODO: merging the VCFs across chromosomes, running PCA to detect outliers
 
 import subprocess
 import pandas as pd
@@ -28,7 +30,7 @@ def filter_vcf(fp, out_path, out_prefix, MAF='0.1'):
     from pathlib import Path
     Path(out_path).mkdir(parents=True, exist_ok=True)
     
-    cmd = ["cd "+ out_path + "; plink2 --vcf " + fp + " --maf " + str(MAF) + " --indep-pairwise 50 10 0.1 --out "+ out_prefix]
+    cmd = ["plink2 --vcf " + fp + " --maf " + str(MAF) + " --indep-pairwise 50 10 0.1 --out "+ out_path + out_prefix]
     run_process(cmd)
     return out_path + out_prefix + '.prune.in'
     
