@@ -1,109 +1,45 @@
-#!/usr/bin/env python
-# coding: utf-8
 
-# In[1]:
-
-
-# TODO: merging the VCFs across chromosomes, running PCA to detect outliers
-
-import subprocess
-import pandas as pd
 import sys
+import json
 
-def run_process(command, print_out=1):
-    p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    outputs = []
-    if print_out:
-        for outline in p.stdout.readlines():
-            print(outline.strip())
-            outputs.append(outline.strip().decode("utf-8"))
-        
-    retval = p.wait()
-    return outputs
-
-def filter_vcf(fp, out_path, out_prefix, MAF='0.1'):
-    """ ex: fp = '/datasets/dsc180a-wi20-public/Genome/vcf/ALL.chr22.shapeit2_integrated_v1a.GRCh38.20181129.phased.vcf.gz'
-    out_path = '../data/vcf/filtered/'
-    out_prefix = 'chr22filtered'
-    MAF = '0.1'
-    """
-    from pathlib import Path
-    Path(out_path).mkdir(parents=True, exist_ok=True)
-    
-    cmd = ["plink2 --vcf " + fp + " --maf " + str(MAF) + " --indep-pairwise 50 10 0.1 --out "+ out_path + out_prefix]
-    run_process(cmd)
-    return out_path + out_prefix + '.prune.in'
-    
-def make_pca(fp, prune_path, pca_out_path, out_prefix):
-    """ fp = '/datasets/dsc180a-wi20-public/Genome/vcf/ALL.chr22.shapeit2_integrated_v1a.GRCh38.20181129.phased.vcf.gz'
-    prune_path = '../data/vcf/filtered/chr22filtered.prune.in'
-    
-    """
-    from pathlib import Path
-    Path(pca_out_path).mkdir(parents=True, exist_ok=True)
-    
-#     if os.path.exists(prune_path.replace('~', str(Path.home())).replace('\'', '')): # check if my computer
-#         print('hi')
-        
-    pca_file_name = pca_out_path + out_prefix + '_pca'
-#     print(pca_file_name)
-
-    cmd = 'plink2 --vcf ' + fp + ' --extract ' + prune_path + ' --make-bed --pca --out ' + pca_file_name
-    run_process(cmd)
-    
-    return pca_file_name
-    
-def plot_from_pca(pca_file_name):
-#     to_cd = '/'.join(pca_file_name.split('/')[:-1])
-#     def cd(path):
-#         os.chdir(os.path.expanduser(path))
-#     cd(to_cd)
-
-    eigvec = pd.read_table(pca_file_name + ".eigenvec", delimiter=' ', header = None)
-    eigval = pd.read_table(pca_file_name + ".eigenval", delimiter=' ', header = None)
-
-    to_plot = eigvec.copy()
-    to_plot[0] = to_plot[0].apply(lambda x: x[:2])
-    to_plot[1] = to_plot[1].apply(lambda x: x[:2])
-
-    ax = to_plot.plot.scatter(x=2, y=3, label='0', legend=False)
-
-    ax.set_title('Principal Components 1 and 2')
-    ax.set_ylabel('PC 2')
-    ax.set_xlabel('PC 1')
-
-    perc_var = (eigval[:16])/eigval[0].sum()*100
-
-    ax2 = perc_var.plot(kind='bar', legend=False)
-    ax2.set_title('Percent Variance Explained by PC')
-    
+sys.path.append('./src')
+from etl import *
     
 def main(targets):
     # grab small amount of data
-    if 'data-test' in targets:
-        fp = './test/chr22_test.vcf.gz'
+    
+    if 'test-project' in targets:
+        cfg = json.load(open('./config/test-params.json'))
         
-    # make the data target, NOT IMPLEMENTED
-#     if 'data' in targets:
-#         cfg = load_params(DATA_PARAMS)
-#         get_data(**cfg)
-
-    # process and run data analysis
-    if 'process' in targets:
-        prunefp = filter_vcf(fp, "./data/vcf/filtered/", fp.split('/')[-1])
+        # Download test data (Chromosome 22) from 1000 genomes site (if up).
+        fp = get_biodata(cfg['test_url'], '.' + cfg['outpath'])
+        
+        pop_file = get_biodata(cfg['pop_url'], cfg['pop_outpath']) 
+        
+#         fp = './test/chr22_test.vcf.gz'
+        
+    # Prune/filter test data and save in filtered directory
+        filt_out_path = "./data/vcf/filtered/"
+        
+        fp = fp[0]
+        prunefp, filtered_vcf = prune_filter_vcf(fp, filt_out_path, fp.split('/')[-1])
+        
         pca_out_path = './data/pca/'
-        pca_file_name = make_pca(fp, prunefp, pca_out_path, fp.split('/')[-1])
-        plot_from_pca(pca_file_name)
         
+        # since it's test sample, filtering will get rid of too much of the variance, so input the regular data to plot 
+        # usually input filtered_vcf in place of fp
+        pca_file_name = make_pca(fp, prunefp, pca_out_path, fp.split('/')[-1])
+        
+        pop_df = pd.read_csv(pop_file[0], delimiter='\t').drop(columns=['Unnamed: 4', 'Unnamed: 5'])
+        
+        plot_from_pca(pca_file_name, pop_df)
+
     return
 
 
 if __name__ == '__main__':
     targets = sys.argv[1:]
     main(targets)
-
-
-# In[ ]:
 
 
 

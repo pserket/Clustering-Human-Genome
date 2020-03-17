@@ -1,73 +1,18 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[17]:
-
-
+import subprocess
 import pandas as pd
-
-
-# In[18]:
-
-
-# !pip install --user pysam
-# !pip install --user scikit-allel
-# !pip install --user biopython
-# !pip install --user html5lib
-# !pip install --user pytabix
-# !pip install --user wget
-# !pip install --user numcodecs
-# !pip install --user zarr
-# !pip install --user ipytree
-import pysam # module to read BAM alignment files and API to samtools
-import allel # module to read VCF files
-import Bio # module to read FASTQ files (Use SeqIO)
-import wget
-import numcodecs
-import zarr
-import ipytree
-import urllib
-
-print('zarr', zarr.__version__, 'numcodecs', numcodecs.__version__)
-print(pysam.__version__)
-print(allel.__version__)
-print(Bio.__version__)
-
-
-# In[3]:
-
-
-# TENTATIVE: configs for the future??? population, number samples, filetype
-
-
-# base_url = 'ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000_genomes_project/data/'
-# outpath = './biodata'
-
-
-# ## Test VCF
-
-# In[4]:
-
-
-import os
-# os.getcwd()
-
-
-# In[5]:
-
 
 import shutil
 import urllib.request as request
 from contextlib import closing
 from urllib.error import URLError
+import os
+
 
 import sys
 import time
 import urllib
 import subprocess
 
-url = [("http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/ALL.chr21.phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz")]
-outpath = "./biodata"
 
 ### FROM BLOG: https://blog.shichao.io/2012/10/04/progress_speed_indicator_for_urlretrieve_in_python.html
 # adds download progress bar to urlretrieve
@@ -117,56 +62,162 @@ def get_biofile(url, outdir):
     return fullpath        
 
 
-# In[6]:
 
+def run_process(command, print_out=1):
+    p = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    outputs = []
+    if print_out:
+        for outline in p.stdout.readlines():
+            print(outline.strip())
+            outputs.append(outline.strip().decode("utf-8"))
+        
+    retval = p.wait()
+    return outputs
 
-# can only do vcf for now
-def process_file(fullpath):
-    """ Converts VCF file to zarr format and file.
-        Fullpath is the path to the file. Outpath is where to put the zarr file.
+def prune_filter_vcf(fp, out_path, out_prefix):
+    """ ex: fp = '/datasets/dsc180a-wi20-public/Genome/vcf/ALL.chr22.shapeit2_integrated_v1a.GRCh38.20181129.phased.vcf.gz'
+    out_path = '../data/vcf/filtered/'
+    out_prefix = 'chr22filtered'
+    MAF = '0.1'
     """
-#     callset = allel.read_vcf(fullpath, fields=['numalt'], log=sys.stdout)
-    filename = fullpath.split('/')[-1]
-
-     # choose a name for the zarr storage file
-    zarrpath = "".join(filename.split('.')[:-2])
-    print(zarrpath)
-
-    # CONVERTING TO ZARR STORAGE
-    allel.vcf_to_zarr(fullpath, zarrpath, #group
-        fields='*', alt_number=8, log=sys.stdout,
-        compressor=numcodecs.Blosc(cname='zstd', clevel=1, shuffle=False))
-
-
-
-# In[10]:
-
-
-filepaths = get_biodata(url, outpath)
+    from pathlib import Path
+    Path(out_path).mkdir(parents=True, exist_ok=True)
+    
+    filtered_vcf = out_path + 'filt_' +  out_prefix
+    
+    # plink2 filter based on maf, missing genotype, sample missingness
+    run_process('plink2 --vcf ' + fp + ' --geno 0.1 --mind 0.1 --maf 0.1 --make-bed --recode vcf -out ' + filtered_vcf)
+    
+    # plink2 filters maf and creates prune.in for pca
+    cmd = ["plink2 --vcf " + filtered_vcf + '.vcf' + " --indep-pairwise 50 10 0.1 --out " + out_path + out_prefix]
+    
+    run_process(cmd)
+    return [out_path + out_prefix + '.prune.in', filtered_vcf+ '.vcf']
+    
+    
 
 
-# In[12]:
+    
+def make_pca(fp, prune_path, pca_out_path, out_prefix):
+    """ fp = '/datasets/dsc180a-wi20-public/Genome/vcf/ALL.chr22.shapeit2_integrated_v1a.GRCh38.20181129.phased.vcf.gz'
+    prune_path = '../data/vcf/filtered/chr22filtered.prune.in'
+    
+    """
+    from pathlib import Path
+    Path(pca_out_path).mkdir(parents=True, exist_ok=True)
+    
+#     if os.path.exists(prune_path.replace('~', str(Path.home())).replace('\'', '')): # check if my computer
+#         print('hi')
+        
+    pca_file_name = pca_out_path + out_prefix + '_pca'
+    
+    cmd = 'plink2 --vcf ' + fp + ' --extract ' + prune_path + ' --make-bed --pca --out ' + pca_file_name
+    
+    run_process(cmd)
+    
+    return pca_file_name
+    
+def plot_from_pca(pca_file_name, population_df):
+
+    import matplotlib.pyplot as plt
 
 
-filepaths
+    eigvec = pd.read_table(pca_file_name + ".eigenvec", delimiter=' ', header = None)
+    eigval = pd.read_table(pca_file_name + ".eigenval", delimiter=' ', header = None)
 
+    eigvec_wPop = pop_df.merge(eigvec, left_on='sample', right_on=0)
 
-# In[14]:
+    to_plot = eigvec_wPop.copy()
+    to_plot[0] = to_plot[0].apply(lambda x: x[:2])
+    to_plot[1] = to_plot[1].apply(lambda x: x[:2])
 
+    # ax = to_plot.plot.scatter(x=2, y=3, label='pop',legend=False)
 
-# for file in filepaths:    
-#     process_file(file)
+    import colorsys
 
+    N = 26
+    # HSV_tuples = [(x*1.0/N, 0.5, 0.5) for x in range(N)]
+    # RGB_tuples = map(lambda x: colorsys.hsv_to_rgb(*x), HSV_tuples)
 
-# In[16]:
+    # colors = list(RGB_tuples)
+    from random import randint
 
+    colors=[]
+    for i in range(N):
+        colors.append('#%06X' % randint(0, 0xFFFFFF))
 
-process_file('/datasets/dsc180a-wi20-public/Genome/vcf/ALL.chr22.shapeit2_integrated_v1a.GRCh38.20181129.phased.vcf.gz')
+    colors = dict(zip(list(to_plot['super_pop'].unique()), colors))
+    ###
+    _, ax = plt.subplots()
+    for key,group in to_plot.groupby('super_pop'):
+        group.plot.scatter(ax=ax, x=2, y=3, label=key, color = colors[key]);
+        ax.set_title('Principal Components 1 and 2')
+        ax.set_ylabel('PC 2')
+        ax.set_xlabel('PC 1')
+        plt.savefig('pca1_2.png')
 
+#     plt.show()
+    
+    ax.legend()
 
-# In[22]:
+    _, ax = plt.subplots()
+    for key,group in to_plot.groupby('super_pop'):
+        group.plot.scatter(ax=ax, x=2, y=4, label=key, color = colors[key]);
+        ax.set_title('Principal Components 1 and 3')
+        ax.set_ylabel('PC 3')
+        ax.set_xlabel('PC 1')
+        plt.savefig('pca1_3.png')
 
+    ###
+#     plt.show()
+    
 
-# allel.vcf_to_zarr(vcf_path, zarr_path, group='22', fields='*', log=sys.stdout, overwrite=True)
-zarr.open_group('chr22TEST.genotypes.zarr', mode='r')
+    ax.legend()
+    perc_var = (eigval[:16])/eigval[0].sum()*100
+
+    ax2 = perc_var.plot(kind='bar', legend=False)
+    ax2.set_title('Percent Variance Explained by PC')
+    
+    plt.savefig('pca_var.png')
+    
+def index_bwa(ref, name_idx):
+    ''' name_idx = 'refhg38'
+    '''
+    run_process('bwa index -p ' +name_idx+ ' -a bwtsw ' + ref)
+    print('done indexing reference')
+
+def fa_to_sam(fp1, fp2, ref, refname, outpath, index=0,header=0):
+    """ http://bioinformatics-core-shared-training.github.io/cruk-bioinf-sschool/Day1/Sequence%20Alignment_July2015_ShamithSamarajiwa.pdf
+        refname: nickname after indexing the ref file
+    """
+    if index == 1: # set refrence index
+        index_bwa(ref, name_idx)
+    space = ' '
+    
+    # 1000g is paired ends, use sampe
+    cmd = 'bwa aln -t 4 ' + refname + ' ' + fp1 +'> ' +outpath + fp1 + ".sai"
+    sai1 = outpath + fp1 + ".sai"
+    
+    cmd = 'bwa aln -t 4 ' + refname + ' ' + fp1 +'> '+ outpath + fp2 + ".sai"
+    sai2 =outpath + fp2 + ".sai"
+    
+    cmd = 'bwa sampe '+ refname + space + sai1 + space + sai2 + space +fp1+space+fp2 +' > '+ outpath + fp1 + '.sam'
+    
+    return 1
+
+def sam_to_bam(sam, ref,header=0):
+    """if sam has header use header=1"""
+    if header==0:
+        cmd= ['samtools view -bT '+ ref+ ' ' +sam+ ' > '+ sam +'.bam'] # when no header
+    else:
+        cmd= ['samtools view -bS '+ sam + ' > '+ sam +'.bam']
+        
+    run_process(cmd)
+    run_process('samtools sort ' + sam +'.bam ' + sam +'_sorted.bam')
+    return 1
+
+def bam_to_vcf(bam, ref):
+    """"TO DO"""
+    run_process('samtools faidx ' + ref)
+
 
