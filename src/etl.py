@@ -34,8 +34,12 @@ def get_biodata(urls, outdir):
     """ Feed config file with array of urls, and directory to save at.
     """
     files_downloaded = []
-    for url in urls:
-        files_downloaded.append(get_biofile(url, outdir))
+    if type(urls) == list:
+        for url in urls:
+            files_downloaded.append(get_biofile(url, outdir))
+    else:
+        
+        files_downloaded.append(get_biofile(urls, outdir))
     return files_downloaded
 
         
@@ -53,13 +57,14 @@ def get_biofile(url, outdir):
     print("Downloading...")
     urllib.request.urlretrieve(url, fullpath, reporthook) # downloads to fullpath
     
-    for_check_zip = '.gz'
-    if url.endswith(for_check_zip):
-        print()
-        print("Unzipping")
-        subprocess.run(["unzip",fullpath])
+#     for_check_zip = '.gz'
+#     if url.endswith(for_check_zip):
+#         print()
+#         print("Unzipping")
+#         subprocess.run(["unzip",fullpath])
         
     return fullpath        
+
 
 
 
@@ -125,7 +130,7 @@ def plot_from_pca(pca_file_name, population_df):
     eigvec = pd.read_table(pca_file_name + ".eigenvec", delimiter=' ', header = None)
     eigval = pd.read_table(pca_file_name + ".eigenval", delimiter=' ', header = None)
 
-    eigvec_wPop = pop_df.merge(eigvec, left_on='sample', right_on=0)
+    eigvec_wPop = population_df.merge(eigvec, left_on='sample', right_on=0)
 
     to_plot = eigvec_wPop.copy()
     to_plot[0] = to_plot[0].apply(lambda x: x[:2])
@@ -156,7 +161,7 @@ def plot_from_pca(pca_file_name, population_df):
         ax.set_xlabel('PC 1')
         plt.savefig('pca1_2.png')
 
-#     plt.show()
+    plt.show()
     
     ax.legend()
 
@@ -169,7 +174,7 @@ def plot_from_pca(pca_file_name, population_df):
         plt.savefig('pca1_3.png')
 
     ###
-#     plt.show()
+    plt.show()
     
 
     ax.legend()
@@ -177,7 +182,6 @@ def plot_from_pca(pca_file_name, population_df):
 
     ax2 = perc_var.plot(kind='bar', legend=False)
     ax2.set_title('Percent Variance Explained by PC')
-    
     plt.savefig('pca_var.png')
     
 def index_bwa(ref, name_idx):

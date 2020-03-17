@@ -12,7 +12,7 @@ def main(targets):
         cfg = json.load(open('./config/test-params.json'))
         
         # Download test data (Chromosome 22) from 1000 genomes site (if up).
-        fp = get_biodata(cfg['test_url'], '.' + cfg['outpath'])
+        fp = get_biodata(cfg['test_url'], cfg['outpath'])
         
         pop_file = get_biodata(cfg['pop_url'], cfg['pop_outpath']) 
         
